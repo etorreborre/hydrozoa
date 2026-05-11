@@ -79,7 +79,7 @@ lazy val core: Project = (project in file("."))
         "io.circe" %% "circe-generic" % "0.14.10",
         "io.circe" %% "circe-parser" % "0.14.10",
         // registry-circe (compositional Circe codecs via the Registry pattern)
-        "org.atnos" %% "registry-circe" % "0.1.3",
+        "org.atnos" %% "registry-circe" % "0.1.4",
         // upickle, to wrap scalus's blockfrost encoding
         "com.lihaoyi" %% "upickle" % "4.4.3",
         // scodec for hex encoding
@@ -95,8 +95,8 @@ lazy val core: Project = (project in file("."))
         "org.scalus" % "scalus-testkit_3" % scalusVersion % Test,
         "dev.optics" %% "monocle-core" % "3.3.0" % Test,
         "dev.optics" %% "monocle-macro" % "3.3.0" % Test,
-        "org.atnos" %% "registry" % "0.1.3" % Test,
-        "org.atnos" %% "registry-scalacheck" % "0.1.3" % Test
+        "org.atnos" %% "registry" % "0.1.4" % Test,
+        "org.atnos" %% "registry-scalacheck" % "0.1.4" % Test
       ),
       // Fork JVM to properly pass system properties
       run / fork := true,

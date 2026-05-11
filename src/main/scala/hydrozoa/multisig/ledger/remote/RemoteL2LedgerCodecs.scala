@@ -23,7 +23,7 @@ import scalus.cardano.ledger.{Coin, KeepRaw, TransactionOutput, Value}
 case class RemoteL2LedgerCodecs(config: CardanoNetwork.Section):
 
     private val encoderRegistry = RemoteL2LedgerRegistry.encoders(config)
-    private val decoderRegistry = RemoteL2LedgerRegistry.buildDecoderRegistry(config)
+    private val decoderRegistry = RemoteL2LedgerRegistry.decoders(config)
 
     private inline def enc[T]: Encoder[T] =
         encoderRegistry.make[registry.circe.Encoder[T]].asCirce

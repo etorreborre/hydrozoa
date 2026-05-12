@@ -24,44 +24,43 @@ import hydrozoa.lib.cardano.cip116
 object RemoteL2LedgerCodecs:
 
     case class Codecs(config: CardanoNetwork.Section) {
-        given[A](using izumi.reflect.Tag[A]): io.circe.Decoder[A] =
-            RemoteL2LedgerCodecs.decoders(config).make[io.circe.Decoder[A]]
+        given[A](using izumi.reflect.Tag[A]): Decoder[A] =
+            RemoteL2LedgerCodecs.decoders(config).makeDecoder[A]
 
-        given[A](using izumi.reflect.Tag[A]): io.circe.Encoder[A] =
-            RemoteL2LedgerCodecs.encoders(config).make[io.circe.Encoder[A]]
-
+        given[A](using izumi.reflect.Tag[A]): Encoder[A] =
+            RemoteL2LedgerCodecs.encoders(config).makeEncoder[A]
     }
 
     def encoders(config: CardanoNetwork.Section) =
-        makeEncoder[Request] +:
-            makeEncoder[Response] +:
-            makeEncoder[Response.Success] +:
-            makeEncoder[Response.Failure] +:
-            makeEncoder[L2LedgerCommand.RegisterDeposit] +:
-            makeEncoder[L2LedgerCommand.ApplyDepositDecisions] +:
-            makeEncoder[L2LedgerCommand.ApplyTransaction] +:
-            makeEncoder[L2LedgerCommand.ProxyBlockConfirmation] +:
-            makeEncoder[L2LedgerCommand.ProxyRequestError] +:
+        encoder[Request] +:
+            encoder[Response] +:
+            encoder[Response.Success] +:
+            encoder[Response.Failure] +:
+            encoder[L2LedgerCommand.RegisterDeposit] +:
+            encoder[L2LedgerCommand.ApplyDepositDecisions] +:
+            encoder[L2LedgerCommand.ApplyTransaction] +:
+            encoder[L2LedgerCommand.ProxyBlockConfirmation] +:
+            encoder[L2LedgerCommand.ProxyRequestError] +:
             encodeVectorOf[EvacuationDiff] +:
             encodeVectorOf[Payout.Obligation] +:
             encodeListOf[RequestId] +:
-            makeEncoder[EvacuationDiff] +:
-            makeEncoder[Destination] +:
+            encoder[EvacuationDiff] +:
+            encoder[Destination] +:
             encodeVectorOf[(RequestId, Serialized)] +:
             encodePairOf[RequestId, Serialized] +:
-            makeEncoder[Value] +:
+            encoder[Value] +:
             encodeIArrayOf[Byte] +:
-            makeEncoder(addressToString) +:
+            encoder(addressToString) +:
             encodeOptionOf[Data] +:
             value(dataEncoder) +:
-            makeEncoder[Payout.Obligation] +:
-            makeEncoder[EvacuationKey] +:
-            makeEncoder((kr: KeepRaw[TransactionOutput]) => ByteString.fromArray(kr.raw).toHex) +:
-            makeEncoder((_: Coin).value) +:
-            makeEncoder((_: QuantizedInstant).instant.toEpochMilli) +:
-            makeEncoder((_: BlockNumber).convert) +:
-            makeEncoder((_: RequestId).asI64) +:
-            makeEncoder((s: Serialized) => s: ByteString) +:
+            encoder((o: Payout.Obligation) => o.utxo) +:
+            encoder[EvacuationKey] +:
+            encoder((kr: KeepRaw[TransactionOutput]) => ByteString.fromArray(kr.raw).toHex) +:
+            encoder((_: Coin).value) +:
+            encoder((_: QuantizedInstant).instant.toEpochMilli) +:
+            encoder((_: BlockNumber).convert) +:
+            encoder((_: RequestId).asI64) +:
+            encoder((s: Serialized) => s: ByteString) +:
             value(evacuationKeyKeyEncoder) +:
             cip116.Codecs.encoders +:
             Encoders.primitives +:
@@ -81,34 +80,34 @@ object RemoteL2LedgerCodecs:
     // -------------------------------------------------------------------------------------------
 
     def decoders(config: CardanoNetwork.Section) =
-        makeDecoder[Request] +:
-            makeDecoder[Response] +:
-            makeDecoder[Response.Success] +:
-            makeDecoder[Response.Failure] +:
-            makeDecoder[L2LedgerCommand.RegisterDeposit] +:
-            makeDecoder[L2LedgerCommand.ApplyDepositDecisions] +:
-            makeDecoder[L2LedgerCommand.ApplyTransaction] +:
-            makeDecoder[L2LedgerCommand.ProxyBlockConfirmation] +:
-            makeDecoder[L2LedgerCommand.ProxyRequestError] +:
+        decoder[Request] +:
+            decoder[Response] +:
+            decoder[Response.Success] +:
+            decoder[Response.Failure] +:
+            decoder[L2LedgerCommand.RegisterDeposit] +:
+            decoder[L2LedgerCommand.ApplyDepositDecisions] +:
+            decoder[L2LedgerCommand.ApplyTransaction] +:
+            decoder[L2LedgerCommand.ProxyBlockConfirmation] +:
+            decoder[L2LedgerCommand.ProxyRequestError] +:
             decodeVectorOf[EvacuationDiff] +:
             decodeVectorOf[Payout.Obligation] +:
             decodeVectorOf[(RequestId, Serialized)] +:
             decodePairOf[RequestId, Serialized] +:
             decodeListOf[RequestId] +:
-            makeDecoder[EvacuationDiff] +:
-            makeDecoder(cborDecoder[Destination]) +:
-            makeDecoder(byteArrayDecoder) +:
-            makeDecoder(payoutObligation) +:
-            makeDecoder(evacuationKeyDecoder) +:
-            makeDecoder(KeepRaw.apply[TransactionOutput]) +:
-            makeDecoder(cborDecoder[TransactionOutput]) +:
-            makeDecoder[Coin] +:
-            makeDecoder[BlockNumber] +:
-            makeDecoder(RequestId.fromI64) +:
-            makeDecoder(valueDecoder) +:
-            makeDecoder(quantizedInstantDecoder) +:
-            makeDecoder(scriptHashDecoder) +:
-            makeDecoder(byteStringDecoder) +:
+            decoder[EvacuationDiff] +:
+            decoder(cborDecoder[Destination]) +:
+            decoder(byteArrayDecoder) +:
+            decoder(payoutObligation) +:
+            decoder(evacuationKeyDecoder) +:
+            decoder(KeepRaw.apply[TransactionOutput]) +:
+            decoder(cborDecoder[TransactionOutput]) +:
+            decoder[Coin] +:
+            decoder[BlockNumber] +:
+            decoder(RequestId.fromI64) +:
+            decoder(valueDecoder) +:
+            decoder(quantizedInstantDecoder) +:
+            decoder(scriptHashDecoder) +:
+            decoder(byteStringDecoder) +:
             value(evacuationKeyKeyDecoder) +:
             value(config) +:
             cip116.Codecs.decoders +:

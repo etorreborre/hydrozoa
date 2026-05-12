@@ -4,7 +4,6 @@ import cats.implicits.*
 import hydrozoa.config.head.network.CardanoNetwork
 import hydrozoa.multisig.ledger.commitment.KzgCommitment
 import hydrozoa.multisig.ledger.commitment.KzgCommitment.KzgCommitment
-import hydrozoa.multisig.ledger.joint.EvacuationKey.given
 import hydrozoa.multisig.ledger.joint.EvacuationMap.mkScalar
 import hydrozoa.multisig.ledger.joint.obligation.Payout
 import hydrozoa.multisig.ledger.remote.RemoteL2LedgerCodecs
@@ -20,7 +19,7 @@ import scalus.uplc.builtin.Data.toData
 import scalus.uplc.builtin.{ByteString, Data, ToData}
 import scalus.|>
 import supranational.blst.Scalar
-import registry.circe.{makeDecoder, makeEncoder, decodeTreeMapOf, encodeTreeMapOf}
+import registry.circe.{decoder, encoder, decodeTreeMapOf, encodeTreeMapOf, makeEncoder, makeDecoder}
 
 given toDataTransactionInput: ToData[TransactionInput] with {
     override def apply(i: TransactionInput): Data =
@@ -119,18 +118,18 @@ object EvacuationMap:
 
     given evacuationMapEncoder(using config: CardanoNetwork.Section): Encoder[EvacuationMap] = {
         val codecs =
-            makeEncoder[EvacuationMap] +:
+            encoder[EvacuationMap] +:
             encodeTreeMapOf[EvacuationKey, Payout.Obligation] +:
             RemoteL2LedgerCodecs.encoders(config)
-        codecs.make[Encoder[EvacuationMap]]
+        codecs.makeEncoder[EvacuationMap]
     }
 
     given evacuationMapDecoder(using config: CardanoNetwork.Section): Decoder[EvacuationMap] = {
         val codecs =
-            makeDecoder[EvacuationMap] +:
+            decoder[EvacuationMap] +:
                 decodeTreeMapOf[EvacuationKey, Payout.Obligation] +:
                 RemoteL2LedgerCodecs.decoders(config)
-        codecs.make[Decoder[EvacuationMap]]
+        codecs.makeDecoder[EvacuationMap]
     }
 
     def empty: EvacuationMap = EvacuationMap(TreeMap.empty)

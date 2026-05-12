@@ -3,97 +3,205 @@ package hydrozoa.multisig.ledger.remote
 import hydrozoa.config.head.network.CardanoNetwork
 import hydrozoa.lib.cardano.scalus.QuantizedTime.QuantizedInstant
 import hydrozoa.multisig.ledger.block.BlockNumber
+import hydrozoa.multisig.ledger.l1.tx.Tx.Serialized
 import hydrozoa.multisig.ledger.joint.{EvacuationDiff, EvacuationKey}
 import hydrozoa.multisig.ledger.joint.obligation.Payout
+import hydrozoa.multisig.ledger.l2.given
 import hydrozoa.multisig.ledger.l2.{Destination, L2LedgerCommand}
 import hydrozoa.multisig.ledger.remote.RemoteL2Ledger.{Request, Response}
-import io.circe.{Decoder, Encoder}
-import scalus.cardano.ledger.{Coin, KeepRaw, TransactionOutput, Value}
+import io.bullet.borer.Cbor
+import hydrozoa.multisig.ledger.event.RequestId
+import io.circe.{Decoder, Encoder, KeyDecoder, KeyEncoder}
+import registry.*
+import registry.circe.*
+import scalus.cardano.address.{Address, ShelleyAddress}
+import scalus.cardano.ledger.{AssetName, Coin, KeepRaw, MultiAsset, PolicyId, ScriptHash, TransactionOutput, Value}
+import scalus.crypto.ed25519.VerificationKey
+import scalus.uplc.builtin.{ByteString, Data}
+import scodec.bits.ByteVector
+import hydrozoa.lib.cardano.cip116
 
-/**
- * JSON codecs for the RemoteL2Ledger WebSocket protocol.
- *
- * Backed by [[RemoteL2LedgerRegistry]] — each `given` resolves the corresponding `Encoder[T]` /
- * `Decoder[T]` from the registry. Since registry-circe ≥ 0.1.5 holds `io.circe.Encoder` /
- * `io.circe.Decoder` directly, the resolved instances are usable as-is — no bridging step.
- *
- * Codec bodies live in `RemoteL2LedgerRegistry` and are wire-format identical to the previous
- * hand-written versions.
- */
-case class RemoteL2LedgerCodecs(config: CardanoNetwork.Section):
+object RemoteL2LedgerCodecs:
 
-    private val encoderRegistry = RemoteL2LedgerRegistry.encoders(config)
-    private val decoderRegistry = RemoteL2LedgerRegistry.decoders(config)
+    case class Codecs(config: CardanoNetwork.Section) {
+        given[A](using izumi.reflect.Tag[A]): io.circe.Decoder[A] =
+            RemoteL2LedgerCodecs.decoders(config).make[io.circe.Decoder[A]]
 
-    private inline def enc[T]: Encoder[T] =
-        encoderRegistry.make[Encoder[T]]
+        given[A](using izumi.reflect.Tag[A]): io.circe.Encoder[A] =
+            RemoteL2LedgerCodecs.encoders(config).make[io.circe.Encoder[A]]
 
-    private inline def dec[T]: Decoder[T] =
-        decoderRegistry.make[Decoder[T]]
+    }
 
-    given Encoder[Coin] = enc[Coin]
-    given Decoder[Coin] = dec[Coin]
+    def encoders(config: CardanoNetwork.Section) =
+        makeEncoder[Request] +:
+            makeEncoder[Response] +:
+            makeEncoder[Response.Success] +:
+            makeEncoder[Response.Failure] +:
+            makeEncoder[L2LedgerCommand.RegisterDeposit] +:
+            makeEncoder[L2LedgerCommand.ApplyDepositDecisions] +:
+            makeEncoder[L2LedgerCommand.ApplyTransaction] +:
+            makeEncoder[L2LedgerCommand.ProxyBlockConfirmation] +:
+            makeEncoder[L2LedgerCommand.ProxyRequestError] +:
+            encodeVectorOf[EvacuationDiff] +:
+            encodeVectorOf[Payout.Obligation] +:
+            encodeListOf[RequestId] +:
+            makeEncoder[EvacuationDiff] +:
+            makeEncoder[Destination] +:
+            encodeVectorOf[(RequestId, Serialized)] +:
+            encodePairOf[RequestId, Serialized] +:
+            makeEncoder[Value] +:
+            encodeIArrayOf[Byte] +:
+            makeEncoder(addressToString) +:
+            encodeOptionOf[Data] +:
+            value(dataEncoder) +:
+            makeEncoder[Payout.Obligation] +:
+            makeEncoder[EvacuationKey] +:
+            makeEncoder((kr: KeepRaw[TransactionOutput]) => ByteString.fromArray(kr.raw).toHex) +:
+            makeEncoder((_: Coin).value) +:
+            makeEncoder((_: QuantizedInstant).instant.toEpochMilli) +:
+            makeEncoder((_: BlockNumber).convert) +:
+            makeEncoder((_: RequestId).asI64) +:
+            makeEncoder((s: Serialized) => s: ByteString) +:
+            value(evacuationKeyKeyEncoder) +:
+            cip116.Codecs.encoders +:
+            Encoders.primitives +:
+            defaultEncoderOptions
 
-    given Encoder[Value] = enc[Value]
-    given Decoder[Value] = dec[Value]
+    // `Address` renders as its bech32 string (or `toString` fallback for non-Shelley addresses)
+    val addressToString: Address => String = {
+        case s: ShelleyAddress => s.toBech32.get
+        case other             => other.toString
+    }
 
-    implicit val quantizedInstantEncoder: Encoder[QuantizedInstant] = enc[QuantizedInstant]
-    implicit val quantizedInstantDecoder: Decoder[QuantizedInstant] = dec[QuantizedInstant]
+    val dataEncoder: Encoder[Data] =
+        Encoder.instance(_ => io.circe.Json.Null)
 
-    implicit val blockNumberEncoder: Encoder[BlockNumber] = enc[BlockNumber]
-    implicit val blockNumberDecoder: Decoder[BlockNumber] = dec[BlockNumber]
+    // -------------------------------------------------------------------------------------------
+    // Decoders
+    // -------------------------------------------------------------------------------------------
 
-    implicit val proxyBlockConfirmationEncoder: Encoder[L2LedgerCommand.ProxyBlockConfirmation] =
-        enc[L2LedgerCommand.ProxyBlockConfirmation]
-    implicit val proxyBlockConfirmationDecoder: Decoder[L2LedgerCommand.ProxyBlockConfirmation] =
-        dec[L2LedgerCommand.ProxyBlockConfirmation]
+    def decoders(config: CardanoNetwork.Section) =
+        makeDecoder[Request] +:
+            makeDecoder[Response] +:
+            makeDecoder[Response.Success] +:
+            makeDecoder[Response.Failure] +:
+            makeDecoder[L2LedgerCommand.RegisterDeposit] +:
+            makeDecoder[L2LedgerCommand.ApplyDepositDecisions] +:
+            makeDecoder[L2LedgerCommand.ApplyTransaction] +:
+            makeDecoder[L2LedgerCommand.ProxyBlockConfirmation] +:
+            makeDecoder[L2LedgerCommand.ProxyRequestError] +:
+            decodeVectorOf[EvacuationDiff] +:
+            decodeVectorOf[Payout.Obligation] +:
+            decodeVectorOf[(RequestId, Serialized)] +:
+            decodePairOf[RequestId, Serialized] +:
+            decodeListOf[RequestId] +:
+            makeDecoder[EvacuationDiff] +:
+            makeDecoder(cborDecoder[Destination]) +:
+            makeDecoder(byteArrayDecoder) +:
+            makeDecoder(payoutObligation) +:
+            makeDecoder(evacuationKeyDecoder) +:
+            makeDecoder(KeepRaw.apply[TransactionOutput]) +:
+            makeDecoder(cborDecoder[TransactionOutput]) +:
+            makeDecoder[Coin] +:
+            makeDecoder[BlockNumber] +:
+            makeDecoder(RequestId.fromI64) +:
+            makeDecoder(valueDecoder) +:
+            makeDecoder(quantizedInstantDecoder) +:
+            makeDecoder(scriptHashDecoder) +:
+            makeDecoder(byteStringDecoder) +:
+            value(evacuationKeyKeyDecoder) +:
+            value(config) +:
+            cip116.Codecs.decoders +:
+            Decoders.primitives +:
+            defaultDecoderOptions
 
-    implicit val proxyRequestErrorEncoder: Encoder[L2LedgerCommand.ProxyRequestError] =
-        enc[L2LedgerCommand.ProxyRequestError]
-    implicit val proxyRequestErrorDecoder: Decoder[L2LedgerCommand.ProxyRequestError] =
-        dec[L2LedgerCommand.ProxyRequestError]
+    def valueDecoder(scriptHashDecoder: Decoder[ScriptHash], assetNameDecoder: Decoder[AssetName]): Decoder[Value] =
+        Decoder.instance { c =>
+            c.downField("assets")
+                .as[List[io.circe.Json]]
+                .flatMap { assets =>
+                    var coin = Coin(0)
+                    val tokenMap = scala.collection.mutable
+                        .Map[PolicyId, scala.collection.mutable.Map[AssetName, Long]]()
 
-    implicit val destinationEncoder: Encoder[Destination] = enc[Destination]
-    implicit val destinationDecoder: Decoder[Destination] = dec[Destination]
+                    assets.foreach { assetEntry =>
+                        val assetCursor = assetEntry.hcursor
+                        val tag = assetCursor
+                            .downField("asset")
+                            .downField("tag")
+                            .as[String]
+                            .getOrElse("")
+                        val value = assetCursor.downField("value").as[Long].getOrElse(0L)
+                        tag match {
+                            case "Ada" =>
+                                coin = Coin(value)
+                            case "NativeToken" =>
+                                for {
+                                    policyId <- assetCursor.downField("asset").downField("policyId").decodeAs(scriptHashDecoder)
+                                    assetName <- assetCursor.downField("asset").downField("assetName").decodeAs(assetNameDecoder)
+                                    innerMap = tokenMap.getOrElseUpdate(policyId, scala.collection.mutable.Map())
+                                }
+                                 yield innerMap(assetName) = value
+                            case unknown => Left(s"Unknown asset tag: $unknown")
+                        }
+                    }
+                    val multiAsset = MultiAsset(
+                      scala.collection.immutable.SortedMap.from(
+                        tokenMap.view.mapValues(m => scala.collection.immutable.SortedMap.from(m))
+                      )
+                    )
+                    Right(Value(coin, multiAsset))
+                }
+        }
 
-    implicit val depositRegistrationEncoder: Encoder[L2LedgerCommand.RegisterDeposit] =
-        enc[L2LedgerCommand.RegisterDeposit]
-    implicit val depositRegistrationDecoder: Decoder[L2LedgerCommand.RegisterDeposit] =
-        dec[L2LedgerCommand.RegisterDeposit]
+    val scriptHashDecoder: Decoder[ScriptHash] = Decoders.string.map(ScriptHash.fromHex)
+    val assetNameDecoder: Decoder[AssetName] = Decoders.string.map(AssetName.fromHex)
 
-    implicit val depositDecisionsEncoder: Encoder[L2LedgerCommand.ApplyDepositDecisions] =
-        enc[L2LedgerCommand.ApplyDepositDecisions]
-    implicit val depositDecisionsDecoder: Decoder[L2LedgerCommand.ApplyDepositDecisions] =
-        dec[L2LedgerCommand.ApplyDepositDecisions]
+    // `ByteString` from a JSON hex string
+    val byteStringDecoder: Decoder[ByteString] =
+        Decoders.string.map(ByteString.fromHex)
 
-    implicit val applyTransactionEncoder: Encoder[L2LedgerCommand.ApplyTransaction] =
-        enc[L2LedgerCommand.ApplyTransaction]
-    implicit val applyTransactionDecoder: Decoder[L2LedgerCommand.ApplyTransaction] =
-        dec[L2LedgerCommand.ApplyTransaction]
+    def cborDecoder[T](bytes: Decoder[ByteString])(using cborD: io.bullet.borer.Decoder[T]): Decoder[T] =
+        bytes.emap(bs =>
+            Cbor.decode(bs.bytes)
+                .to[T]
+                .valueEither
+                .left.map(e => s"Could not cbor-decode: ${e.getMessage}")
+        )
 
-    implicit val requestEncoder: Encoder[Request] = enc[Request]
-    implicit val requestDecoder: Decoder[Request] = dec[Request]
+    def byteArrayDecoder(string: Decoder[String]): Decoder[Array[Byte]] =
+        string.emap(hex =>
+            ByteVector.fromHex(hex).map(_.toArray).toRight(s"Invalid hex string: $hex")
+        )
 
-    implicit val responseSuccessEncoder: Encoder[Response.Success] = enc[Response.Success]
-    implicit val responseSuccessDecoder: Decoder[Response.Success] = dec[Response.Success]
+    def evacuationKeyDecoder(byteString: Decoder[ByteString]): Decoder[EvacuationKey] =
+        byteString.emap { bytes =>
+            EvacuationKey(bytes) match {
+                case Some(key) => Right(key)
+                case None      => Left("Invalid EvacuationKey")
+            }
+        }
 
-    implicit val responseFailureEncoder: Encoder[Response.Failure] = enc[Response.Failure]
-    implicit val responseFailureDecoder: Decoder[Response.Failure] = dec[Response.Failure]
+    def evacuationKeyKeyEncoder: KeyEncoder[EvacuationKey] =
+        KeyEncoder.encodeKeyString.contramap(_.byteString.toHex)
 
-    implicit val responseEncoder: Encoder[Response] = enc[Response]
-    implicit val responseDecoder: Decoder[Response] = dec[Response]
+    def evacuationKeyKeyDecoder: KeyDecoder[EvacuationKey] =
+        KeyDecoder.instance { hex =>
+            for {
+                bytes <- scala.util.Try(ByteString.fromHex(hex)).toOption
+                ek <- EvacuationKey(bytes)
+            } yield ek
+        }
 
-    given Encoder[EvacuationKey] = enc[EvacuationKey]
-    given Decoder[EvacuationKey] = dec[EvacuationKey]
+    def payoutObligation(
+        config: CardanoNetwork.Section,
+        d: Decoder[KeepRaw[TransactionOutput]]
+    ): Decoder[Payout.Obligation] =
+        d.emap(kr => Payout.Obligation(kr, config).left.map(_.toString))
 
-    given Encoder[KeepRaw[TransactionOutput]] = enc[KeepRaw[TransactionOutput]]
-    given Decoder[KeepRaw[TransactionOutput]] = dec[KeepRaw[TransactionOutput]]
-
-    given Encoder[EvacuationDiff] = enc[EvacuationDiff]
-    given evacuationDiffDecoder: Decoder[EvacuationDiff] = dec[EvacuationDiff]
-
-    given payoutObligationEncoder: Encoder[Payout.Obligation] = enc[Payout.Obligation]
-    given payoutObligationDecoder: Decoder[Payout.Obligation] = dec[Payout.Obligation]
-
-    implicit val unitEncoder: Encoder[Unit] = enc[Unit]
-    implicit val unitDecoder: Decoder[Unit] = dec[Unit]
+    val quantizedInstantDecoder: Decoder[QuantizedInstant] =
+        Decoders.long.map(_ =>
+            throw new NotImplementedError(
+              "QuantizedInstant decoding requires SlotConfig context"
+            )
+        )

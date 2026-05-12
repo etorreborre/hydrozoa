@@ -18,6 +18,7 @@ import org.http4s.client.websocket.{WSConnectionHighLevel, WSFrame, WSRequest}
 import org.http4s.jdkhttpclient.JdkWSClient
 import org.typelevel.log4cats.Logger
 import scala.concurrent.duration.*
+import RemoteL2LedgerCodecs.Codecs
 
 /** A remote L2Ledger implementation that communicates with a black-box ledger over WebSocket.
   *
@@ -47,8 +48,8 @@ class RemoteL2Ledger private (
 
     override implicit def monadF: Monad[IO] = Async[IO]
 
-    private val codecs = RemoteL2LedgerCodecs(config)
-    import codecs.*
+    val codecs = Codecs(config)
+    import codecs.given
 
     /** Send a request to the remote ledger and wait for the synchronous response */
     /** Establish a new WebSocket connection

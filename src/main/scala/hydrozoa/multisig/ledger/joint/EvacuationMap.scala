@@ -9,7 +9,7 @@ import hydrozoa.multisig.ledger.joint.EvacuationMap.mkScalar
 import hydrozoa.multisig.ledger.joint.obligation.Payout
 import hydrozoa.multisig.ledger.remote.RemoteL2LedgerCodecs
 import hydrozoa.rulebased.ledger.l1.script.plutus.RuleBasedTreasuryValidator.given
-import io.circe.{Decoder, Encoder, *}
+import io.circe.*
 import scala.collection.immutable.{SortedMap, TreeMap}
 import scala.util.Try
 import scalus.cardano.ledger.*
@@ -20,6 +20,7 @@ import scalus.uplc.builtin.Data.toData
 import scalus.uplc.builtin.{ByteString, Data, ToData}
 import scalus.|>
 import supranational.blst.Scalar
+import registry.circe.{makeDecoder, makeEncoder, decodeTreeMapOf, encodeTreeMapOf}
 
 given toDataTransactionInput: ToData[TransactionInput] with {
     override def apply(i: TransactionInput): Data =
@@ -117,23 +118,19 @@ final case class EvacuationMap(
 object EvacuationMap:
 
     given evacuationMapEncoder(using config: CardanoNetwork.Section): Encoder[EvacuationMap] = {
-        val codecs = RemoteL2LedgerCodecs(config)
-        Encoder
-            .encodeMap[EvacuationKey, Payout.Obligation](using
-              evacuationKeyKeyEncoder,
-              codecs.payoutObligationEncoder
-            )
-            .contramap(emap => emap.evacuationMap)
+        val codecs =
+            makeEncoder[EvacuationMap] +:
+            encodeTreeMapOf[EvacuationKey, Payout.Obligation] +:
+            RemoteL2LedgerCodecs.encoders(config)
+        codecs.make[Encoder[EvacuationMap]]
     }
 
     given evacuationMapDecoder(using config: CardanoNetwork.Section): Decoder[EvacuationMap] = {
-        val codecs = RemoteL2LedgerCodecs(config)
-        Decoder
-            .decodeMap[EvacuationKey, Payout.Obligation](using
-              evacuationKeyKeyDecoder,
-              codecs.payoutObligationDecoder
-            )
-            .map(m => EvacuationMap.from(m))
+        val codecs =
+            makeDecoder[EvacuationMap] +:
+                decodeTreeMapOf[EvacuationKey, Payout.Obligation] +:
+                RemoteL2LedgerCodecs.decoders(config)
+        codecs.make[Decoder[EvacuationMap]]
     }
 
     def empty: EvacuationMap = EvacuationMap(TreeMap.empty)

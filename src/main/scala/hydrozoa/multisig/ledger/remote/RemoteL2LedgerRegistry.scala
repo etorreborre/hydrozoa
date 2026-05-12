@@ -11,20 +11,19 @@ import hydrozoa.multisig.ledger.l2.{Destination, L2LedgerCommand}
 import hydrozoa.multisig.ledger.remote.RemoteL2Ledger.{Request, Response}
 import io.bullet.borer.Cbor
 import hydrozoa.multisig.ledger.event.RequestId
+import io.circe.{Decoder, Encoder}
 import registry.*
 import registry.circe.*
-import scala.util.Try
 import scalus.cardano.address.{Address, ShelleyAddress}
 import scalus.cardano.ledger.{AssetName, Coin, KeepRaw, MultiAsset, PolicyId, ScriptHash, TransactionOutput, Value}
 import scalus.crypto.ed25519.VerificationKey
 import scalus.uplc.builtin.{ByteString, Data}
 import scodec.bits.ByteVector
-import hydrozoa.lib.cardano.cip116.JsonCodecsRegistry.{decoderRegistry, encoderRegistry}
-import cats.syntax.all.catsSyntaxEither
+import hydrozoa.lib.cardano.cip116
 
 object RemoteL2LedgerRegistry:
 
-    def encoders(config: CardanoNetwork.Section): Registry[? <: Tuple, ? <: Tuple] =
+    def encoders(config: CardanoNetwork.Section) =
         makeEncoder[Request] +:
             makeEncoder[Response] +:
             makeEncoder[Response.Success] +:
@@ -54,8 +53,8 @@ object RemoteL2LedgerRegistry:
             makeEncoder((_: BlockNumber).convert) +:
             makeEncoder((_: RequestId).asI64) +:
             makeEncoder((s: Serialized) => s: ByteString) +:
-            encoderRegistry +:
-            Encoder.primitives +:
+            cip116.Codecs.encoders +:
+            Encoders.primitives +:
             defaultEncoderOptions
 
     // `Address` renders as its bech32 string (or `toString` fallback for non-Shelley addresses)
@@ -65,7 +64,7 @@ object RemoteL2LedgerRegistry:
     }
 
     val dataEncoder: Encoder[Data] =
-        Encoder(_ => io.circe.Json.Null)
+        Encoder.instance(_ => io.circe.Json.Null)
 
     // -------------------------------------------------------------------------------------------
     // Decoders
@@ -87,27 +86,26 @@ object RemoteL2LedgerRegistry:
             decodePairOf[RequestId, Serialized] +:
             decodeListOf[RequestId] +:
             makeDecoder[EvacuationDiff] +:
-            fun(destinationDecoder) +:
-            fun(byteArrayDecoder) +:
-            fun(payoutObligationFromKeepRaw) +:
-            fun(evacuationKeyDecoder) +:
+            makeDecoder(cborDecoder[Destination]) +:
+            makeDecoder(byteArrayDecoder) +:
+            makeDecoder(payoutObligation) +:
+            makeDecoder(evacuationKeyDecoder) +:
             makeDecoder(KeepRaw.apply[TransactionOutput]) +:
-            fun(cborDecoder[TransactionOutput]) +:
-            map(Coin.apply) +:
-            map(BlockNumber.apply) +:
-            map(RequestId.fromI64) +:
-            fun(valueDecoder) +:
-            value(scriptHashDecoder) +:
-            value(quantizedInstantDecoder) +:
+            makeDecoder(cborDecoder[TransactionOutput]) +:
+            makeDecoder[Coin] +:
+            makeDecoder[BlockNumber] +:
+            makeDecoder(RequestId.fromI64) +:
+            makeDecoder(valueDecoder) +:
+            makeDecoder(quantizedInstantDecoder) +:
+            makeDecoder(scriptHashDecoder) +:
+            makeDecoder(byteStringDecoder) +:
             value(config) +:
-            value(byteStringDecoder) +:
-            decoderRegistry +:
-            Decoder.primitives +:
+            cip116.Codecs.decoders +:
+            Decoders.primitives +:
             defaultDecoderOptions
 
     def valueDecoder(scriptHashDecoder: Decoder[ScriptHash], assetNameDecoder: Decoder[AssetName]): Decoder[Value] =
-        Decoder { json =>
-            val c = json.hcursor
+        Decoder.instance { c =>
             c.downField("assets")
                 .as[List[io.circe.Json]]
                 .flatMap { assets =>
@@ -143,33 +141,21 @@ object RemoteL2LedgerRegistry:
                     )
                     Right(Value(coin, multiAsset))
                 }
-                .leftMap(e => e.toString)
         }
 
-    extension (cursor: io.circe.ACursor)
-        def decodeAs[A](decoder: Decoder[A]): Option[A] =
-            cursor.focus.flatMap(v => decoder.decode(v).toOption)
-
-    val scriptHashDecoder: Decoder[ScriptHash] = Decoder.string.map(ScriptHash.fromHex)
-    val assetNameDecoder: Decoder[AssetName] = Decoder.string.map(AssetName.fromHex)
+    val scriptHashDecoder: Decoder[ScriptHash] = Decoders.string.map(ScriptHash.fromHex)
+    val assetNameDecoder: Decoder[AssetName] = Decoders.string.map(AssetName.fromHex)
 
     // `ByteString` from a JSON hex string
     val byteStringDecoder: Decoder[ByteString] =
-        Decoder.string.map(ByteString.fromHex)
+        Decoders.string.map(ByteString.fromHex)
 
     def cborDecoder[T](bytes: Decoder[ByteString])(using cborD: io.bullet.borer.Decoder[T]): Decoder[T] =
         bytes.emap(bs =>
             Cbor.decode(bs.bytes)
                 .to[T]
                 .valueEither
-                .leftMap(e => s"Could not cbor-decode: ${e.getMessage}")
-        )
-
-    def destinationDecoder(bytes: Decoder[Array[Byte]]): Decoder[Destination] =
-        bytes.emap(bs =>
-            Try(Cbor.decode(bs).to[Destination].value).toEither.left.map(e =>
-                s"Could not cbor-decode the bytes: ${e}"
-            )
+                .left.map(e => s"Could not cbor-decode: ${e.getMessage}")
         )
 
     def byteArrayDecoder(string: Decoder[String]): Decoder[Array[Byte]] =
@@ -185,14 +171,14 @@ object RemoteL2LedgerRegistry:
             }
         }
 
-    def payoutObligationFromKeepRaw(
+    def payoutObligation(
         config: CardanoNetwork.Section,
         d: Decoder[KeepRaw[TransactionOutput]]
     ): Decoder[Payout.Obligation] =
         d.emap(kr => Payout.Obligation(kr, config).left.map(_.toString))
 
     val quantizedInstantDecoder: Decoder[QuantizedInstant] =
-        Decoder.long.map(_ =>
+        Decoders.long.map(_ =>
             throw new NotImplementedError(
               "QuantizedInstant decoding requires SlotConfig context"
             )

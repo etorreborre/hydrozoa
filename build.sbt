@@ -40,6 +40,7 @@ dockerCommands := dockerCommands.value.flatMap {
 val scalusVersion = "0.15.1"
 val bloxbeanVersion = "0.7.1"
 val http4sVersion = "0.23.32"
+val registryVersion = "0.1.5"
 
 // Main application
 lazy val core: Project = (project in file("."))
@@ -79,7 +80,7 @@ lazy val core: Project = (project in file("."))
         "io.circe" %% "circe-generic" % "0.14.10",
         "io.circe" %% "circe-parser" % "0.14.10",
         // registry-circe (compositional Circe codecs via the Registry pattern)
-        "org.atnos" %% "registry-circe" % "0.1.4",
+        "org.atnos" %% "registry-circe" % registryVersion,
         // upickle, to wrap scalus's blockfrost encoding
         "com.lihaoyi" %% "upickle" % "4.4.3",
         // scodec for hex encoding
@@ -95,8 +96,8 @@ lazy val core: Project = (project in file("."))
         "org.scalus" % "scalus-testkit_3" % scalusVersion % Test,
         "dev.optics" %% "monocle-core" % "3.3.0" % Test,
         "dev.optics" %% "monocle-macro" % "3.3.0" % Test,
-        "org.atnos" %% "registry" % "0.1.4" % Test,
-        "org.atnos" %% "registry-scalacheck" % "0.1.4" % Test
+        "org.atnos" %% "registry" % registryVersion % Test,
+        "org.atnos" %% "registry-scalacheck" % registryVersion % Test
       ),
       // Fork JVM to properly pass system properties
       run / fork := true,

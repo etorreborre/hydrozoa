@@ -13,12 +13,12 @@ import scalus.cardano.ledger.{Coin, KeepRaw, TransactionOutput, Value}
 /**
  * JSON codecs for the RemoteL2Ledger WebSocket protocol.
  *
- * Backed by [[RemoteL2LedgerRegistry]] — each `given` is a thin adapter that resolves the
- * corresponding `registry.circe.Encoder[T]` / `Decoder[T]` from the registry and lifts it via
- * [[hydrozoa.lib.json.Boundary]] to the `io.circe` shape expected by call sites and http4s.
+ * Backed by [[RemoteL2LedgerRegistry]] — each `given` resolves the corresponding `Encoder[T]` /
+ * `Decoder[T]` from the registry. Since registry-circe ≥ 0.1.5 holds `io.circe.Encoder` /
+ * `io.circe.Decoder` directly, the resolved instances are usable as-is — no bridging step.
  *
- * This is a structural migration: codec bodies live in `RemoteL2LedgerRegistry` and are wire-format
- * identical to the previous hand-written versions.
+ * Codec bodies live in `RemoteL2LedgerRegistry` and are wire-format identical to the previous
+ * hand-written versions.
  */
 case class RemoteL2LedgerCodecs(config: CardanoNetwork.Section):
 
@@ -26,10 +26,10 @@ case class RemoteL2LedgerCodecs(config: CardanoNetwork.Section):
     private val decoderRegistry = RemoteL2LedgerRegistry.decoders(config)
 
     private inline def enc[T]: Encoder[T] =
-        encoderRegistry.make[registry.circe.Encoder[T]].asCirce
+        encoderRegistry.make[Encoder[T]]
 
     private inline def dec[T]: Decoder[T] =
-        decoderRegistry.make[registry.circe.Decoder[T]].asCirce
+        decoderRegistry.make[Decoder[T]]
 
     given Encoder[Coin] = enc[Coin]
     given Decoder[Coin] = dec[Coin]

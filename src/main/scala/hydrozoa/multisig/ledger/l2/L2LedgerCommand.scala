@@ -7,8 +7,9 @@ import hydrozoa.multisig.ledger.block.BlockNumber
 import hydrozoa.multisig.ledger.event.RequestId
 import hydrozoa.multisig.ledger.l1.tx.Tx
 import hydrozoa.multisig.ledger.l2
-import io.bullet.borer.derivation.CompactMapBasedCodecs.derived
 import io.bullet.borer.{Cbor, Decoder, Encoder}
+import registry.*
+import registry.cbor.*
 import scalus.cardano.address.Address
 import scalus.cardano.ledger.{Coin, TransactionInput, Value}
 import scalus.cardano.onchain.plutus.v3.PosixTime
@@ -21,8 +22,36 @@ case class Destination(address: Address, datum: Option[Data]) {
     def toHex: String = ByteString.fromArray(Cbor.encode(this).toByteArray).toHex
 }
 
-given io.bullet.borer.Encoder[Destination] = Encoder.derived
-given io.bullet.borer.Decoder[Destination] = Decoder.derived
+/** Registry-cbor codecs for [[Destination]].
+  */
+
+private lazy val cborOptions =
+    CborOptions.default.copy(
+      fieldKeyMode = FieldKeyMode.StringKeys,
+      constructorTagMode = ConstructorTagMode.StringTags,
+      sumEncoding = SumEncoding.SingleKeyMap
+    )
+
+private lazy val destinationEncoders =
+    encoder[Destination] +:
+        encoderOf[Address] +:
+        encodeOptionOf[Data] +:
+        encoderOf[Data] +:
+        value(cborOptions) +:
+        defaultEncoderOptions
+
+private lazy val destinationDecoders =
+    decoder[Destination] +:
+        decoderOf[Address] +:
+        decodeOptionOf[Data] +:
+        decoderOf[Data] *:
+        value(cborOptions) +:
+        defaultDecoderOptions
+
+given destinationEncoder[T](using izumi.reflect.Tag[T]): io.bullet.borer.Encoder[T] =
+    destinationEncoders.makeEncoder[T]
+given destinationDecoder[T](using izumi.reflect.Tag[T]): io.bullet.borer.Decoder[T] =
+    destinationDecoders.makeDecoder[T]
 
 /** This trait is the Ledger Event type between hydrozoa and a black-box [[L2Ledger]]. See
   * [[hydrozoa.multisig.ledger.event.UserRequest]] for the type representing events between

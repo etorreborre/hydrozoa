@@ -5,8 +5,9 @@ import cats.syntax.all.*
 import hydrozoa.*
 import hydrozoa.multisig.ledger.l1.txseq.DepositRefundTxSeq
 import hydrozoa.multisig.ledger.l2.L2LedgerCommand
-import io.bullet.borer.derivation.MapBasedCodecs.derived
 import io.bullet.borer.{Cbor, Decoder, Encoder, Writer}
+import registry.*
+import registry.cbor.*
 import scala.collection.immutable.{Queue, TreeMap}
 import scalus.cardano.address.{Network, ShelleyAddress, ShelleyDelegationPart, ShelleyPaymentPart}
 import scalus.cardano.ledger.DatumOption.Inline
@@ -33,10 +34,6 @@ final case class L2Genesis(
         )
     }
 }
-
-given Encoder[L2Genesis] = Encoder.derived
-given l2GenesisDecoder: Decoder[L2Genesis] =
-    Decoder.derived[L2Genesis]
 
 object L2Genesis {
 
@@ -90,12 +87,6 @@ case class GenesisObligation(
           scriptRef = l2OutputRefScript.map(ScriptRef(_))
         )
 }
-given Encoder[GenesisObligation] with {
-    override def write(w: Writer, value: GenesisObligation): Writer =
-        summon[Encoder[TransactionOutput]].write(w, value.toTransactionOutput)
-}
-given genesisObligationDecoder: Decoder[GenesisObligation] =
-    summon[Decoder[TransactionOutput]].mapEither(to => GenesisObligation.fromTransactionOutput(to))
 
 object GenesisObligation {
     enum Error extends Throwable:
@@ -145,3 +136,35 @@ object GenesisObligation {
         ByteString.fromArray(Cbor.encode(Queue.from(gos.toList)).toByteArray)
 
 }
+
+/** Registry-cbor codec for [[L2Genesis]].
+  */
+private lazy val cborOptions = CborOptions.default.copy(
+    fieldKeyMode = FieldKeyMode.StringKeys,
+    constructorTagMode = ConstructorTagMode.StringTags,
+    sumEncoding = SumEncoding.SingleKeyMap
+)
+
+private lazy val l2GenesisEncoders =
+    encoder[L2Genesis] +:
+        encodeLinearSeqOf[GenesisObligation, Queue] +:
+        encoder((_:GenesisObligation).toTransactionOutput) +:
+        encoder((h:TransactionHash) => h: ByteString) +:
+        encoderOf[TransactionOutput] +:
+        encoderOf[ByteString] +:
+        value(cborOptions) +:
+        defaultEncoderOptions
+
+private lazy val l2GenesisDecoders =
+    decoder[L2Genesis] +:
+        decodeLinearSeqOf[GenesisObligation, Queue] +:
+        emap((to: TransactionOutput) => GenesisObligation.fromTransactionOutput(to).left.map(_.toString)) +:
+        decoder(TransactionHash.fromByteString) +:
+        decoderOf[TransactionOutput] +:
+        decoderOf[ByteString] +:
+        value(cborOptions) +:
+        defaultDecoderOptions
+
+given l2GenesisEncoder[T](using izumi.reflect.Tag[T]): Encoder[T] = l2GenesisEncoders.makeEncoder[T]
+given l2GenesisDecoder[T](using izumi.reflect.Tag[T]): Decoder[T] = l2GenesisDecoders.makeDecoder[T]
+
